@@ -25,8 +25,8 @@
     "entry_point": {
       "darwin-arm64": "server/mcp-trino-darwin-arm64",
       "darwin-amd64": "server/mcp-trino-darwin-amd64",
-      "linux": "server/mcp-trino-linux-amd64", 
-      "win32": "server/mcp-trino-windows-amd64.exe"
+      "linux-amd64": "server/mcp-trino-linux-amd64", 
+      "win32-amd64": "server/mcp-trino-windows-amd64.exe"
     },
     "mcp_config": {
       "env": {
