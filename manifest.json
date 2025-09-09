@@ -1,8 +1,8 @@
 {
-  "dxt_version": "0.1",
+  "manifest_version": "0.1",
   "name": "mcp-trino",
   "display_name": "Trino MCP Server",
-  "version": "1.5.0",
+  "version": "2.2.1",
   "description": "A high-performance Model Context Protocol (MCP) server that enables AI assistants to interact with Trino's distributed SQL query engine through standardized MCP tools",
   "long_description": "This MCP server provides comprehensive access to Trino's distributed SQL query engine with features including:\n\n- Execute SQL queries with security restrictions\n- Discover catalogs, schemas, and tables\n- Retrieve table structure and column information\n- SSL/TLS support for secure connections\n- Configurable query timeouts\n- Cross-platform binaries for macOS, Windows, and Linux\n\nCompatible with Claude Desktop, Cursor, Windsurf, ChatWise, and any MCP-compatible clients.",
   "author": {
@@ -17,15 +17,18 @@
   "support": "https://github.com/tuannvm/mcp-trino/issues",
   "license": "MIT",
   "compatibility": {
-    "claude_desktop": ">=0.10.0",
+    "claude_desktop": ">=0.12.129",
     "platforms": ["darwin", "win32", "linux"]
   },
   "server": {
     "type": "binary",
-    "entry_point": "server/mcp-trino-darwin-arm64",
+    "entry_point": {
+      "darwin-arm64": "server/mcp-trino-darwin-arm64",
+      "darwin-amd64": "server/mcp-trino-darwin-amd64",
+      "linux": "server/mcp-trino-linux-amd64", 
+      "win32": "server/mcp-trino-windows-amd64.exe"
+    },
     "mcp_config": {
-      "command": "sh",
-      "args": ["-c", "chmod +x \"${__dirname}/server/mcp-trino-darwin-arm64\" && \"${__dirname}/server/mcp-trino-darwin-arm64\""],
       "env": {
         "TRINO_HOST": "${user_config.trino_host}",
         "TRINO_PORT": "${user_config.trino_port}",
@@ -36,15 +39,6 @@
         "TRINO_SSL_INSECURE": "${user_config.trino_ssl_insecure}",
         "TRINO_ALLOW_WRITE_QUERIES": "${user_config.trino_allow_write_queries}",
         "TRINO_QUERY_TIMEOUT": "${user_config.trino_query_timeout}"
-      },
-      "platforms": {
-        "win32": {
-          "command": "${__dirname}/server/mcp-trino-windows-amd64.exe"
-        },
-        "linux": {
-          "command": "sh",
-          "args": ["-c", "chmod +x \"${__dirname}/server/mcp-trino-linux-amd64\" && \"${__dirname}/server/mcp-trino-linux-amd64\""]
-        }
       }
     }
   },
@@ -134,15 +128,10 @@
     {
       "name": "get_table_schema",
       "description": "Retrieve table structure and column information"
+    },
+    {
+      "name": "explain_query",
+      "description": "Analyze query execution plans without running expensive queries"
     }
-  ],
-  "features": [
-    "STDIO and HTTP transport support",
-    "Server-Sent Events (SSE) for web clients",
-    "SQL injection protection with read-only enforcement",
-    "Configurable query timeouts",
-    "SSL/TLS support for secure connections",
-    "Multi-platform binary support",
-    "Docker container support"
   ]
 }

@@ -1,4 +1,4 @@
-.PHONY: build build-dxt pack-dxt test clean run-dev release-snapshot run-docker run docker-compose-up docker-compose-down lint docker-test
+.PHONY: build build-platform-binaries build-mcpb pack-mcpb-from-dist test clean run-dev release-snapshot run-docker run docker-compose-up docker-compose-down lint docker-test
 
 # Variables
 BINARY_NAME=mcp-trino
@@ -10,10 +10,10 @@ build:
 	mkdir -p $(BUILD_DIR)
 	go build -ldflags "-X main.Version=$(VERSION)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 
-# Build all platform-specific binaries for DXT packaging
-build-dxt:
+# Build all platform-specific binaries for MCPB packaging
+build-platform-binaries:
 	mkdir -p server
-	@echo "Building platform-specific binaries for DXT..."
+	@echo "Building platform-specific binaries for MCPB..."
 	GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.Version=$(VERSION)" -o server/$(BINARY_NAME)-darwin-arm64 ./cmd
 	GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.Version=$(VERSION)" -o server/$(BINARY_NAME)-darwin-amd64 ./cmd
 	GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=$(VERSION)" -o server/$(BINARY_NAME)-linux-amd64 ./cmd
@@ -21,11 +21,60 @@ build-dxt:
 	chmod +x server/$(BINARY_NAME)-*
 	@echo "All platform binaries built in server/ directory"
 
-# Package DXT extension
-pack-dxt: build-dxt
-	@echo "Packaging DXT extension..."
-	dxt pack
-	@echo "DXT package created: $(BINARY_NAME).dxt"
+# Build MCPB bundle
+build-mcpb: build-platform-binaries
+	@echo "Creating MCPB bundle..."
+	@if [ ! -f "manifest.json" ]; then \
+		echo "Error: manifest.json not found"; \
+		exit 1; \
+	fi
+	mkdir -p mcpb-bundle/server
+	cp server/* mcpb-bundle/server/
+	# Update version in manifest.json to match build version
+	sed 's/"version": ".*"/"version": "$(VERSION)"/' manifest.json > mcpb-bundle/manifest.json
+	cd mcpb-bundle && zip -r ../$(BINARY_NAME).mcpb . && cd ..
+	rm -rf mcpb-bundle
+	@echo "MCPB bundle created: $(BINARY_NAME).mcpb"
+
+# Pack MCPB from GoReleaser dist/ folder  
+pack-mcpb-from-dist:
+	@echo "Creating MCPB bundle from GoReleaser binaries..."
+	mkdir -p mcpb-bundle/server
+	@# Copy specific platform binaries with explicit names
+	@found_count=0; \
+	for platform in "linux_amd64" "darwin_amd64" "darwin_arm64" "windows_amd64"; do \
+		found=$$(find dist -path "*_$${platform}_*" -name "$(BINARY_NAME)*" -type f | head -1); \
+		if [ -n "$$found" ]; then \
+			case "$$platform" in \
+				"linux_amd64") cp "$$found" "mcpb-bundle/server/$(BINARY_NAME)-linux-amd64" ;; \
+				"darwin_amd64") cp "$$found" "mcpb-bundle/server/$(BINARY_NAME)-darwin-amd64" ;; \
+				"darwin_arm64") cp "$$found" "mcpb-bundle/server/$(BINARY_NAME)-darwin-arm64" ;; \
+				"windows_amd64") cp "$$found" "mcpb-bundle/server/$(BINARY_NAME)-windows-amd64.exe" ;; \
+			esac; \
+			echo "Copied $$found -> $(BINARY_NAME)-$$platform"; \
+			found_count=$$((found_count + 1)); \
+		else \
+			echo "Warning: No binary found for $$platform"; \
+		fi; \
+	done; \
+	if [ $$found_count -eq 0 ]; then \
+		echo "Error: No binaries found in dist/ directory"; \
+		exit 1; \
+	fi
+	@if [ ! -f "manifest.json" ]; then \
+		echo "Error: manifest.json not found"; \
+		rm -rf mcpb-bundle; \
+		exit 1; \
+	fi
+	# Update version in manifest.json to match GoReleaser version
+	@if [ -n "$(GORELEASER_VERSION)" ]; then \
+		sed 's/"version": ".*"/"version": "$(GORELEASER_VERSION)"/' manifest.json > mcpb-bundle/manifest.json; \
+	else \
+		sed 's/"version": ".*"/"version": "$(VERSION)"/' manifest.json > mcpb-bundle/manifest.json; \
+	fi
+	cd mcpb-bundle && zip -r ../$(BINARY_NAME).mcpb . && cd ..
+	rm -rf mcpb-bundle
+	@echo "MCPB bundle created: $(BINARY_NAME).mcpb"
 
 # Run tests
 test:
@@ -35,7 +84,9 @@ test:
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf server
-	rm -f $(BINARY_NAME).dxt $(BINARY_NAME)-*.dxt
+	rm -rf mcpb-bundle
+	rm -rf dist
+	rm -f $(BINARY_NAME).mcpb
 
 # Run the application in development mode
 run-dev:
@@ -44,9 +95,10 @@ run-dev:
 # Create a release snapshot using GoReleaser
 release-snapshot:
 	goreleaser release --snapshot --clean
+	make pack-mcpb-from-dist
 
 # Run the application using the built binary
-run:
+run: build
 	./$(BUILD_DIR)/$(BINARY_NAME)
 
 # Build and run Docker image

@@ -32,9 +32,10 @@ make docker-compose-down # Stop Docker Compose
 make run-docker          # Build and run Docker image locally
 
 # Release and packaging
-make release-snapshot    # Create snapshot release with GoReleaser
-make build-dxt          # Build platform-specific binaries for DXT
-make pack-dxt           # Package DXT extension
+make release-snapshot         # Create snapshot release with GoReleaser
+make build-platform-binaries  # Build platform-specific binaries for MCPB
+make build-mcpb              # Build MCPB bundle
+make pack-mcpb-from-dist     # Create MCPB from GoReleaser binaries
 
 # Testing individual components
 go test ./internal/config    # Test configuration package
