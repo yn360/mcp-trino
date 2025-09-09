@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.tuannvm/mcp-trino",
+  "description": "MCP server for Trino distributed SQL query engine access",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/tuannvm/mcp-trino",
+    "source": "github"
+  },
+  "version": "2.2.1",
+  "packages": [
+    {
+      "registry_type": "mcpb",
+      "identifier": "https://github.com/tuannvm/mcp-trino/releases/download/v2.2.1/mcp-trino_2.2.1_darwin_arm64.tar.gz",
+      "version": "2.2.1",
+      "file_sha256": "1a18882ab43243e17420f3562118a4c3e7fff12bc6b145066ae64b90b2dc0159",
+      "transport": {
+        "type": "stdio"
+      },
+      "environment_variables": [
+        {
+          "description": "Trino server hostname",
+          "is_required": true,
+          "format": "string",
+          "is_secret": false,
+          "name": "TRINO_HOST"
+        },
+        {
+          "description": "Trino server port",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "TRINO_PORT"
+        },
+        {
+          "description": "Trino username",
+          "is_required": true,
+          "format": "string",
+          "is_secret": false,
+          "name": "TRINO_USER"
+        },
+        {
+          "description": "Trino password",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "TRINO_PASSWORD"
+        }
+      ]
+    }
+  ]
+}
