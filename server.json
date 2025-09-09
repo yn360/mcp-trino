@@ -11,9 +11,9 @@
   "packages": [
     {
       "registry_type": "mcpb",
-      "identifier": "https://github.com/tuannvm/mcp-trino/releases/download/v2.2.1/mcp-trino_2.2.1_darwin_arm64.tar.gz",
+      "identifier": "https://github.com/tuannvm/mcp-trino/releases/download/v2.2.1/mcp-trino.mcpb",
       "version": "2.2.1",
-      "file_sha256": "1a18882ab43243e17420f3562118a4c3e7fff12bc6b145066ae64b90b2dc0159",
+      "file_sha256": "PLACEHOLDER_SHA256",
       "transport": {
         "type": "stdio"
       },
