@@ -60,13 +60,13 @@ jobs:
         if: steps.tag.outputs.new_tag != ''
         run: |
           GORELEASER_VERSION=${{ steps.tag.outputs.new_tag }} make pack-mcpb-from-dist
-          ls -la mcp-trino.mcpb || (echo "MCPB bundle not found" && exit 1)
+          ls -la ${{ github.event.repository.name }}.mcpb || (echo "MCPB bundle not found" && exit 1)
 
       - name: Upload MCPB bundle to release
         if: steps.tag.outputs.new_tag != ''
         run: |
-          if [ -f "mcp-trino.mcpb" ]; then
-            gh release upload ${{ steps.tag.outputs.new_tag }} mcp-trino.mcpb --clobber
+          if [ -f "${{ github.event.repository.name }}.mcpb" ]; then
+            gh release upload ${{ steps.tag.outputs.new_tag }} ${{ github.event.repository.name }}.mcpb --clobber
           else
             echo "Error: MCPB bundle not found for upload"
             exit 1

@@ -1,7 +1,7 @@
 .PHONY: build build-platform-binaries build-mcpb pack-mcpb-from-dist test clean run-dev release-snapshot run-docker run docker-compose-up docker-compose-down lint docker-test
 
 # Variables
-BINARY_NAME=mcp-trino
+BINARY_NAME ?= $(shell basename $(shell git remote get-url origin) .git | sed 's/.*\///')
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_DIR=bin
 
@@ -30,8 +30,8 @@ build-mcpb: build-platform-binaries
 	fi
 	mkdir -p mcpb-bundle/server
 	cp server/* mcpb-bundle/server/
-	# Update version in manifest.json to match build version
-	sed 's/"version": ".*"/"version": "$(VERSION)"/' manifest.json > mcpb-bundle/manifest.json
+	# Update version and name in manifest.json to match build version and binary name
+	sed -e 's/"version": ".*"/"version": "$(VERSION)"/' -e 's/"name": "$(BINARY_NAME)"/"name": "$(BINARY_NAME)"/' manifest.json > mcpb-bundle/manifest.json
 	cd mcpb-bundle && zip -r ../$(BINARY_NAME).mcpb . && cd ..
 	rm -rf mcpb-bundle
 	@echo "MCPB bundle created: $(BINARY_NAME).mcpb"
@@ -66,11 +66,11 @@ pack-mcpb-from-dist:
 		rm -rf mcpb-bundle; \
 		exit 1; \
 	fi
-	# Update version in manifest.json to match GoReleaser version
+	# Update version and name in manifest.json to match GoReleaser version and binary name
 	@if [ -n "$(GORELEASER_VERSION)" ]; then \
-		sed 's/"version": ".*"/"version": "$(GORELEASER_VERSION)"/' manifest.json > mcpb-bundle/manifest.json; \
+		sed -e 's/"version": ".*"/"version": "$(GORELEASER_VERSION)"/' -e 's/"name": "$(BINARY_NAME)"/"name": "$(BINARY_NAME)"/' manifest.json > mcpb-bundle/manifest.json; \
 	else \
-		sed 's/"version": ".*"/"version": "$(VERSION)"/' manifest.json > mcpb-bundle/manifest.json; \
+		sed -e 's/"version": ".*"/"version": "$(VERSION)"/' -e 's/"name": "$(BINARY_NAME)"/"name": "$(BINARY_NAME)"/' manifest.json > mcpb-bundle/manifest.json; \
 	fi
 	cd mcpb-bundle && zip -r ../$(BINARY_NAME).mcpb . && cd ..
 	rm -rf mcpb-bundle
