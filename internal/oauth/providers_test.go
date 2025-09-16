@@ -324,3 +324,51 @@ func TestOIDCValidator_AudienceValidation(t *testing.T) {
 	}
 }
 
+// TestOIDCValidator_InitializationValidation tests OIDC initialization validation
+func TestOIDCValidator_InitializationValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *config.TrinoConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "missing issuer",
+			config: &config.TrinoConfig{
+				OIDCIssuer:   "",
+				OIDCAudience: "test-audience",
+			},
+			expectError: true,
+			errorMsg:    "OIDC issuer is required for OIDC provider",
+		},
+		{
+			name: "missing audience",
+			config: &config.TrinoConfig{
+				OIDCIssuer:   "https://example.com",
+				OIDCAudience: "",
+			},
+			expectError: true,
+			errorMsg:    "OIDC audience is required for OIDC provider",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &OIDCValidator{}
+			err := validator.Initialize(tt.config)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				} else if tt.errorMsg != "" && err.Error() != tt.errorMsg {
+					t.Errorf("Expected error message '%s', got '%s'", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+

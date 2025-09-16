@@ -135,6 +135,13 @@ func (v *HMACValidator) validateAudience(claims jwt.MapClaims) error {
 
 // Initialize sets up the OIDC validator with provider discovery
 func (v *OIDCValidator) Initialize(cfg *config.TrinoConfig) error {
+	if cfg.OIDCIssuer == "" {
+		return fmt.Errorf("OIDC issuer is required for OIDC provider")
+	}
+	if cfg.OIDCAudience == "" {
+		return fmt.Errorf("OIDC audience is required for OIDC provider")
+	}
+
 	// Use standard library context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -165,9 +172,9 @@ func (v *OIDCValidator) Initialize(cfg *config.TrinoConfig) error {
 	
 	// Configure token verifier with required validation settings
 	verifier := provider.Verifier(&oidc.Config{
-		ClientID:             cfg.OIDCAudience,
+		ClientID:             cfg.OIDCClientID,
 		SupportedSigningAlgs: []string{oidc.RS256, oidc.ES256},
-		SkipClientIDCheck:    false, // Verify audience
+		SkipClientIDCheck:    false, // Always validate if ClientID is provided
 		SkipExpiryCheck:      false, // Verify expiration
 		SkipIssuerCheck:      false, // Verify issuer
 	})
