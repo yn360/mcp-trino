@@ -248,3 +248,79 @@ func TestHMACValidator_SecurityValidation(t *testing.T) {
 	})
 }
 
+// TestOIDCValidator_AudienceValidation tests OIDC JWT audience validation
+func TestOIDCValidator_AudienceValidation(t *testing.T) {
+	// Test the validateAudience method directly since OIDC provider setup requires external services
+	validator := &OIDCValidator{
+		audience: "test-service-audience",
+	}
+
+	tests := []struct {
+		name      string
+		claims    jwt.MapClaims
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "valid audience string",
+			claims: jwt.MapClaims{
+				"aud": "test-service-audience",
+				"sub": "user123",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid audience string",
+			claims: jwt.MapClaims{
+				"aud": "wrong.audience.com",
+				"sub": "user123",
+			},
+			expectErr: true,
+			errMsg:    "invalid audience: expected test-service-audience, got wrong.audience.com",
+		},
+		{
+			name: "missing audience claim",
+			claims: jwt.MapClaims{
+				"sub": "user123",
+			},
+			expectErr: true,
+			errMsg:    "missing audience claim",
+		},
+		{
+			name: "valid audience array",
+			claims: jwt.MapClaims{
+				"aud": []interface{}{"test-service-audience", "other.service.com"},
+				"sub": "user123",
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid audience array",
+			claims: jwt.MapClaims{
+				"aud": []interface{}{"wrong.service.com", "other.service.com"},
+				"sub": "user123",
+			},
+			expectErr: true,
+			errMsg:    "invalid audience: expected test-service-audience not found in audience list",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validator.validateAudience(tt.claims)
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				} else if tt.errMsg != "" && err.Error() != tt.errMsg {
+					t.Errorf("Expected error message '%s', got '%s'", tt.errMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+

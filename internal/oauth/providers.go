@@ -32,6 +32,7 @@ type HMACValidator struct {
 type OIDCValidator struct {
 	verifier *oidc.IDTokenVerifier
 	provider *oidc.Provider
+	audience string
 }
 
 // Initialize sets up the HMAC validator with JWT secret and audience
@@ -172,9 +173,10 @@ func (v *OIDCValidator) Initialize(cfg *config.TrinoConfig) error {
 	})
 	
 	log.Printf("OAuth: OIDC validator initialized with audience validation: %s", cfg.OIDCAudience)
-	
+
 	v.provider = provider
 	v.verifier = verifier
+	v.audience = cfg.OIDCAudience
 	return nil
 }
 
@@ -211,10 +213,50 @@ func (v *OIDCValidator) ValidateToken(tokenString string) (*User, error) {
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("failed to extract claims: %w", err)
 	}
-	
+
+	// Extract raw claims for audience validation
+	var rawClaims jwt.MapClaims
+	if err := idToken.Claims(&rawClaims); err != nil {
+		return nil, fmt.Errorf("failed to extract raw claims: %w", err)
+	}
+
+	// Validate audience claim for security (explicit check)
+	if err := v.validateAudience(rawClaims); err != nil {
+		return nil, fmt.Errorf("audience validation failed: %w", err)
+	}
+
 	return &User{
 		Subject:  claims.Subject,
 		Username: claims.PreferredUsername,
 		Email:    claims.Email,
 	}, nil
+}
+
+// validateAudience validates the audience claim matches the expected value for OIDC tokens
+func (v *OIDCValidator) validateAudience(claims jwt.MapClaims) error {
+	// Extract audience claim (can be string or []string)
+	audClaim, exists := claims["aud"]
+	if !exists {
+		return fmt.Errorf("missing audience claim")
+	}
+
+	// Handle string audience
+	if audStr, ok := audClaim.(string); ok {
+		if audStr != v.audience {
+			return fmt.Errorf("invalid audience: expected %s, got %s", v.audience, audStr)
+		}
+		return nil
+	}
+
+	// Handle array of audiences
+	if audArray, ok := audClaim.([]interface{}); ok {
+		for _, aud := range audArray {
+			if audStr, ok := aud.(string); ok && audStr == v.audience {
+				return nil
+			}
+		}
+		return fmt.Errorf("invalid audience: expected %s not found in audience list", v.audience)
+	}
+
+	return fmt.Errorf("invalid audience claim type")
 }
