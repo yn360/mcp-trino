@@ -1,6 +1,10 @@
 # JWT Authentication Implementation
 
-This document describes the JWT-based authentication implementation for the mcp-trino server, providing secure access control at the server level.
+> **Implementation:** JWT authentication is provided by [oauth-mcp-proxy](https://github.com/tuannvm/oauth-mcp-proxy).
+>
+> **For JWT configuration, validation logic, and security details**, see the [oauth-mcp-proxy documentation](https://github.com/tuannvm/oauth-mcp-proxy#readme).
+
+This document describes the JWT-based authentication architecture for mcp-trino server, providing secure access control at the server level.
 
 ## Overview
 
@@ -63,7 +67,7 @@ sequenceDiagram
 
 ```bash
 # Authentication Configuration
-TRINO_OAUTH_ENABLED=true        # Default: true (secure by default)
+OAUTH_ENABLED=true        # Default: true (secure by default)
 JWT_SECRET=your-secret-key      # JWT signing secret (REQUIRED - server fails without it)
 
 # Transport Configuration

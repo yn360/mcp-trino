@@ -2,6 +2,8 @@
 
 This guide provides step-by-step instructions for installing the mcp-trino Helm chart on Amazon EKS.
 
+> **OAuth Authentication**: mcp-trino uses [oauth-mcp-proxy](https://github.com/tuannvm/oauth-mcp-proxy) for OAuth 2.1 authentication. See the library documentation for detailed provider configuration and security best practices.
+
 ## Quick Start
 
 ### 1. Prerequisites

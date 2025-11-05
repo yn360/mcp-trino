@@ -86,10 +86,33 @@ func isReadOnlyQuery(query string) bool {
 	// Remove string literals and comments to avoid false positives
 	queryLower = sanitizeQueryForKeywordDetection(queryLower)
 
-
 	// First check for SQL injection attempts with multiple statements
 	if strings.Contains(queryLower, ";") {
 		return false
+	}
+
+	// Check if query starts with SELECT, SHOW, DESCRIBE, EXPLAIN or WITH (for CTEs)
+	// These are generally read-only operations. Use word boundaries for robustness.
+	// IMPORTANT: This check must come BEFORE write operation detection to avoid false positives
+	// (e.g., "SHOW CREATE TABLE" contains "create" but is read-only)
+	readOnlyPrefixPatterns := []string{
+		`^\s*select\b`,
+		`^\s*show\b`,
+		`^\s*describe\b`,
+		`^\s*explain\b`,
+		`^\s*with\b`,
+	}
+
+	for _, pattern := range readOnlyPrefixPatterns {
+		matched, _ := regexp.MatchString(pattern, queryLower)
+		if matched {
+			// For queries starting with read-only prefixes, we still need to check
+			// for disallowed write operations that might be embedded
+			// But we allow common read-only patterns like "SHOW CREATE TABLE"
+			if isAllowedReadOnlyPattern(queryLower) {
+				return true
+			}
+		}
 	}
 
 	// Check for write operations anywhere in the query using word boundaries
@@ -109,19 +132,61 @@ func isReadOnlyQuery(query string) bool {
 		}
 	}
 
-	// Check if query starts with SELECT, SHOW, DESCRIBE, EXPLAIN or WITH (for CTEs)
-	// These are generally read-only operations. Use word boundaries for robustness.
-	readOnlyPrefixPatterns := []string{
-		`^\s*select\b`,
-		`^\s*show\b`,
-		`^\s*describe\b`,
-		`^\s*explain\b`,
-		`^\s*with\b`,
+	return false
+}
+
+// isAllowedReadOnlyPattern checks if a query matches known safe read-only patterns
+// even if it contains keywords that might look like write operations
+func isAllowedReadOnlyPattern(queryLower string) bool {
+	// SHOW CREATE statements are read-only (they just display DDL)
+	showCreatePatterns := []string{
+		`^\s*show\s+create\s+table\b`,
+		`^\s*show\s+create\s+view\b`,
+		`^\s*show\s+create\s+schema\b`,
+		`^\s*show\s+create\s+materialized\s+view\b`,
 	}
 
-	for _, pattern := range readOnlyPrefixPatterns {
+	for _, pattern := range showCreatePatterns {
 		matched, _ := regexp.MatchString(pattern, queryLower)
 		if matched {
+			return true
+		}
+	}
+
+	// Other SHOW statements without CREATE are safe
+	if matched, _ := regexp.MatchString(`^\s*show\b`, queryLower); matched {
+		// Check if it doesn't contain any write operation keywords after SHOW
+		// (except for "create" which is handled above)
+		writeOpsExceptCreate := []string{
+			"insert", "update", "delete", "drop", "alter", "truncate",
+			"merge", "copy", "grant", "revoke", "commit", "rollback",
+			"call", "execute", "refresh", "set", "reset",
+		}
+		for _, op := range writeOpsExceptCreate {
+			pattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(op))
+			if matched, _ := regexp.MatchString(pattern, queryLower); matched {
+				return false
+			}
+		}
+		return true
+	}
+
+	// SELECT, DESCRIBE, EXPLAIN, WITH without write operations are safe
+	safeStarts := []string{`^\s*select\b`, `^\s*describe\b`, `^\s*explain\b`, `^\s*with\b`}
+	for _, pattern := range safeStarts {
+		if matched, _ := regexp.MatchString(pattern, queryLower); matched {
+			// If it starts with a safe keyword, check there are no write operations
+			writeOps := []string{
+				"insert", "update", "delete", "drop", "create", "alter", "truncate",
+				"merge", "copy", "grant", "revoke", "commit", "rollback",
+				"call", "execute", "refresh", "set", "reset",
+			}
+			for _, op := range writeOps {
+				opPattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(op))
+				if matched, _ := regexp.MatchString(opPattern, queryLower); matched {
+					return false
+				}
+			}
 			return true
 		}
 	}
@@ -154,6 +219,9 @@ func sanitizeQueryForKeywordDetection(query string) string {
 
 // ExecuteQuery executes a SQL query and returns the results
 func (c *Client) ExecuteQuery(query string) ([]map[string]interface{}, error) {
+	// Strip trailing semicolon that Trino doesn't allow
+	query = strings.TrimSuffix(strings.TrimSpace(query), ";")
+
 	// SQL injection protection: only allow read-only queries unless explicitly allowed in config
 	if !c.config.AllowWriteQueries && !isReadOnlyQuery(query) {
 		return nil, fmt.Errorf("security restriction: only SELECT, SHOW, DESCRIBE, and EXPLAIN queries are allowed. " +

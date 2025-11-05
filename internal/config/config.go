@@ -51,30 +51,10 @@ func NewTrinoConfig() (*TrinoConfig, error) {
 	scheme := getEnv("TRINO_SCHEME", "https")
 	allowWriteQueries, _ := strconv.ParseBool(getEnv("TRINO_ALLOW_WRITE_QUERIES", "false"))
 
-	// OAuth mode configuration: native (default) or proxy
+	// OAuth configuration - OAUTH_ENABLED is the single source of truth
+	oauthEnabled, _ := strconv.ParseBool(getEnv("OAUTH_ENABLED", "false"))
 	oauthMode := strings.ToLower(getEnv("OAUTH_MODE", "native"))
-
-	// Smart OAuth detection: if OAUTH_PROVIDER is explicitly set, enable OAuth
-	oauthProvider := strings.ToLower(getEnv("OAUTH_PROVIDER", ""))
-	oauthEnabled := false
-
-	if oauthProvider != "" {
-		// User explicitly set OAUTH_PROVIDER, enable OAuth
-		oauthEnabled = true
-		log.Printf("INFO: OAuth automatically enabled because OAUTH_PROVIDER=%s is set", oauthProvider)
-
-		// Allow explicit override if needed
-		if explicitEnabled := os.Getenv("OAUTH_ENABLED"); explicitEnabled != "" {
-			oauthEnabled, _ = strconv.ParseBool(explicitEnabled)
-			if !oauthEnabled {
-				log.Printf("WARNING: OAuth explicitly disabled via OAUTH_ENABLED=false despite OAUTH_PROVIDER being set")
-			}
-		}
-	} else {
-		// No OAUTH_PROVIDER set, check OAUTH_ENABLED (defaults to false)
-		oauthEnabled, _ = strconv.ParseBool(getEnv("OAUTH_ENABLED", "false"))
-		oauthProvider = "hmac" // Default provider when OAuth is enabled without explicit provider
-	}
+	oauthProvider := strings.ToLower(getEnv("OAUTH_PROVIDER", "hmac"))
 	jwtSecret := getEnv("JWT_SECRET", "")
 
 	// OIDC configuration with secure defaults
@@ -82,14 +62,15 @@ func NewTrinoConfig() (*TrinoConfig, error) {
 	oidcAudience := getEnv("OIDC_AUDIENCE", "") // No default - must be explicitly configured
 	oidcClientID := getEnv("OIDC_CLIENT_ID", "")
 	oidcClientSecret := getEnv("OIDC_CLIENT_SECRET", "")
-	oauthRedirectURIs := getEnv("OAUTH_REDIRECT_URI", "")
-	oauthAllowedRedirects := getEnv("OAUTH_ALLOWED_REDIRECT_URIS", "")
 
-	// Prioritize OAUTH_REDIRECT_URI, but warn if both are set with different values
-	if oauthRedirectURIs != "" && oauthAllowedRedirects != "" && oauthRedirectURIs != oauthAllowedRedirects {
-		log.Printf("WARNING: Both OAUTH_REDIRECT_URI and OAUTH_ALLOWED_REDIRECT_URIS are set with different values. Using OAUTH_REDIRECT_URI: %s", oauthRedirectURIs)
-	} else if oauthRedirectURIs == "" {
-		oauthRedirectURIs = oauthAllowedRedirects
+	// Redirect URI configuration with backward compatibility
+	oauthRedirectURIs := getEnv("OAUTH_ALLOWED_REDIRECT_URIS", "")
+	if oauthRedirectURIs == "" {
+		deprecatedURI := getEnv("OAUTH_REDIRECT_URI", "")
+		if deprecatedURI != "" {
+			log.Println("WARNING: OAUTH_REDIRECT_URI is deprecated. Use OAUTH_ALLOWED_REDIRECT_URIS instead.")
+			oauthRedirectURIs = deprecatedURI
+		}
 	}
 
 	// Parse query timeout from environment variable
@@ -132,51 +113,22 @@ func NewTrinoConfig() (*TrinoConfig, error) {
 		log.Println("WARNING: Write queries are enabled (TRINO_ALLOW_WRITE_QUERIES=true). SQL injection protection is bypassed.")
 	}
 
-	// Validate OAuth mode
-	validModes := map[string]bool{"native": true, "proxy": true}
-	if !validModes[oauthMode] {
-		return nil, fmt.Errorf("invalid OAuth mode '%s'. Supported modes: native, proxy", oauthMode)
-	}
-
-	// Validate and log OAuth mode status
+	// Log OAuth status - detailed validation delegated to oauth-mcp-proxy
 	if oauthEnabled {
-		// Validate OAuth provider
-		validProviders := map[string]bool{"hmac": true, "okta": true, "google": true, "azure": true}
-		if !validProviders[oauthProvider] {
-			return nil, fmt.Errorf("invalid OAuth provider '%s'. Supported providers: hmac, okta, google, azure", oauthProvider)
-		}
+		log.Printf("INFO: OAuth 2.1 enabled (mode: %s, provider: %s)", oauthMode, oauthProvider)
 
-		log.Printf("INFO: OAuth 2.1 authentication enabled (mode: %s, provider: %s)", oauthMode, oauthProvider)
-		if oauthProvider == "hmac" && jwtSecret == "" {
-			return nil, fmt.Errorf("security error: JWT_SECRET is required when using HMAC provider. Set JWT_SECRET environment variable")
-		}
+		// Keep helpful setup warnings for user experience
 		if oauthProvider != "hmac" && oidcIssuer == "" {
-			log.Printf("WARNING: OIDC_ISSUER not set for %s provider. OAuth authentication may fail.", oauthProvider)
+			log.Printf("WARNING: OIDC_ISSUER not set for %s provider. OAuth may fail.", oauthProvider)
 		}
-
-		// Validate audience configuration for security
-		if oauthProvider != "hmac" && oidcAudience == "" {
-			return nil, fmt.Errorf("security error: OIDC_AUDIENCE is required for %s provider. Set OIDC_AUDIENCE environment variable to your service-specific audience", oauthProvider)
+		if oauthMode == "proxy" && oauthProvider != "hmac" && oidcClientSecret == "" {
+			log.Printf("WARNING: OIDC_CLIENT_SECRET not set for proxy mode with %s provider.", oauthProvider)
 		}
-
-		// Validate proxy mode specific requirements
-		if oauthMode == "proxy" {
-			if oauthProvider != "hmac" && oidcClientSecret == "" {
-				log.Printf("WARNING: OIDC_CLIENT_SECRET not set for proxy mode with %s provider. OAuth flow may fail.", oauthProvider)
-			}
-			if oauthRedirectURIs == "" {
-				log.Printf("WARNING: No OAuth redirect URIs configured for proxy mode. All redirects will be rejected for security.")
-			}
-		}
-
-		if oauthProvider != "hmac" {
-			log.Printf("INFO: JWT audience validation enabled for: %s", oidcAudience)
-		}
-		if oauthRedirectURIs != "" {
-			log.Printf("INFO: OAuth redirect URIs configured: %s", oauthRedirectURIs)
+		if oauthMode == "proxy" && oauthRedirectURIs == "" {
+			log.Printf("WARNING: No OAuth redirect URIs configured for proxy mode.")
 		}
 	} else {
-		log.Println("INFO: OAuth authentication is disabled (OAUTH_ENABLED=false). Enable OAuth for production deployments.")
+		log.Println("INFO: OAuth disabled. Set OAUTH_ENABLED=true to activate.")
 	}
 
 	// Log allowlist configuration

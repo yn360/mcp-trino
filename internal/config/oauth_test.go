@@ -24,16 +24,14 @@ func TestOAuthModeConfiguration(t *testing.T) {
 		oauthEnabled   string
 		oauthProvider  string
 		expectedMode   string
-		expectError    bool
 		expectedEnable bool
 	}{
 		{
-			name:           "Default native mode",
+			name:           "Default native mode disabled",
 			oauthMode:      "native",
 			oauthEnabled:   "false",
-			oauthProvider:  "",
+			oauthProvider:  "hmac",
 			expectedMode:   "native",
-			expectError:    false,
 			expectedEnable: false,
 		},
 		{
@@ -42,7 +40,6 @@ func TestOAuthModeConfiguration(t *testing.T) {
 			oauthEnabled:   "true",
 			oauthProvider:  "hmac",
 			expectedMode:   "native",
-			expectError:    true, // JWT_SECRET required for HMAC
 			expectedEnable: true,
 		},
 		{
@@ -51,16 +48,15 @@ func TestOAuthModeConfiguration(t *testing.T) {
 			oauthEnabled:   "true",
 			oauthProvider:  "hmac",
 			expectedMode:   "proxy",
-			expectError:    true, // JWT_SECRET required for HMAC
 			expectedEnable: true,
 		},
 		{
-			name:          "Invalid mode",
-			oauthMode:     "invalid",
-			oauthEnabled:  "false",
-			oauthProvider: "",
-			expectedMode:  "",
-			expectError:   true,
+			name:           "Invalid mode accepted (validation delegated)",
+			oauthMode:      "invalid",
+			oauthEnabled:   "false",
+			oauthProvider:  "hmac",
+			expectedMode:   "invalid",
+			expectedEnable: false,
 		},
 	}
 
@@ -70,22 +66,7 @@ func TestOAuthModeConfiguration(t *testing.T) {
 			_ = os.Setenv("OAUTH_ENABLED", tt.oauthEnabled)
 			_ = os.Setenv("OAUTH_PROVIDER", tt.oauthProvider)
 
-			// Set JWT_SECRET for HMAC tests that shouldn't error
-			if tt.oauthProvider == "hmac" && !tt.expectError {
-				_ = os.Setenv("JWT_SECRET", "test-secret")
-			} else {
-				_ = os.Unsetenv("JWT_SECRET")
-			}
-
 			config, err := NewTrinoConfig()
-
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-				return
-			}
-
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return

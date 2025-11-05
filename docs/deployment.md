@@ -24,7 +24,7 @@ The server supports two transport methods:
 1. **OIDC Provider Mode** (Production - Recommended)
    ```bash
    # Configure with OAuth provider (Okta example)
-   export TRINO_OAUTH_ENABLED=true
+   export OAUTH_ENABLED=true
    export OAUTH_PROVIDER=okta
    export OIDC_ISSUER=https://your-domain.okta.com
    export OIDC_AUDIENCE=your-service-audience
@@ -35,7 +35,7 @@ The server supports two transport methods:
 2. **HMAC Mode** (Development/Testing)
    ```bash
    # Simple JWT with shared secret
-   export TRINO_OAUTH_ENABLED=true
+   export OAUTH_ENABLED=true
    export OAUTH_PROVIDER=hmac
    export JWT_SECRET=your-secret-key-here
    export MCP_TRANSPORT=http
@@ -62,7 +62,7 @@ For production deployments with authentication, HTTPS is strongly recommended:
 ```bash
 export HTTPS_CERT_FILE=/path/to/certificate.pem
 export HTTPS_KEY_FILE=/path/to/private-key.pem
-export TRINO_OAUTH_ENABLED=true
+export OAUTH_ENABLED=true
 export MCP_TRANSPORT=http
 mcp-trino
 ```
@@ -82,7 +82,7 @@ Since the server supports JWT authentication and HTTP transport, you can deploy 
 export MCP_TRANSPORT=http
 export MCP_PORT=443
 export MCP_URL=https://your-mcp-server.com
-export TRINO_OAUTH_ENABLED=true
+export OAUTH_ENABLED=true
 export HTTPS_CERT_FILE=/etc/ssl/certs/mcp-trino.pem
 export HTTPS_KEY_FILE=/etc/ssl/private/mcp-trino.key
 export TRINO_HOST=your-trino-cluster.com
@@ -140,7 +140,7 @@ FROM ghcr.io/tuannvm/mcp-trino:latest
 
 ENV MCP_TRANSPORT=http
 ENV MCP_PORT=8080
-ENV TRINO_OAUTH_ENABLED=true
+ENV OAUTH_ENABLED=true
 ENV TRINO_HOST=your-trino-cluster.com
 ENV TRINO_PORT=443
 ENV TRINO_USER=service-account
@@ -187,7 +187,7 @@ docker run -d -p 8080:8080 \
 **For Production (OIDC):**
 ```bash
 # Configure OAuth provider
-export TRINO_OAUTH_ENABLED=true
+export OAUTH_ENABLED=true
 export OAUTH_PROVIDER=okta
 export OIDC_ISSUER=https://your-domain.okta.com
 export OIDC_AUDIENCE=https://your-domain.okta.com
@@ -200,7 +200,7 @@ mcp-trino
 **For Development (HMAC):**
 ```bash
 # Simple JWT testing
-export TRINO_OAUTH_ENABLED=true
+export OAUTH_ENABLED=true
 export OAUTH_PROVIDER=hmac
 export JWT_SECRET="your-test-secret"
 export MCP_TRANSPORT=http
@@ -242,8 +242,8 @@ mcp-trino
 | MCP_PORT               | HTTP port for http transport      | 8080      |
 | MCP_HOST               | Host for HTTP callbacks           | localhost |
 | MCP_URL                | Public base URL of MCP server (used for OAuth metadata and client discovery); required for remote deployments | http://localhost:8080 |
-| TRINO_OAUTH_ENABLED    | Enable OAuth authentication (auto-enabled when OAUTH_PROVIDER is set) | false |
-| OAUTH_PROVIDER         | OAuth provider (hmac/okta/google/azure) - setting this enables OAuth | (empty) |
+| OAUTH_ENABLED    | Enable OAuth authentication | false |
+| OAUTH_PROVIDER         | OAuth provider (hmac/okta/google/azure) | hmac |
 | JWT_SECRET             | JWT secret for HMAC mode          | (empty)   |
 | OIDC_ISSUER            | OIDC provider issuer URL          | (empty)   |
 | OIDC_AUDIENCE          | OIDC audience identifier (required for OIDC providers) | (empty - must be set) |
@@ -259,6 +259,6 @@ mcp-trino
 
 > **For Web Client Integration**: When using with web clients, set `MCP_TRANSPORT=http` and connect to the `/mcp` endpoint for StreamableHTTP support. The `/sse` endpoint is maintained for backward compatibility.
 
-> **OAuth Authentication**: When `TRINO_OAUTH_ENABLED=true`, the server supports multiple OAuth providers including OIDC-compliant providers (Okta, Google, Azure AD) for production use and HMAC mode for development/testing.
+> **OAuth Authentication**: When `OAUTH_ENABLED=true`, the server supports multiple OAuth providers including OIDC-compliant providers (Okta, Google, Azure AD) for production use and HMAC mode for development/testing.
 
 > **HTTPS Support**: For production deployments, configure HTTPS by setting `HTTPS_CERT_FILE` and `HTTPS_KEY_FILE` environment variables. This is strongly recommended when using JWT authentication.

@@ -92,12 +92,12 @@ graph TB
 - ✅ Catalog, schema, and table discovery
 - ✅ Docker container support
 - ✅ Supports both STDIO and HTTP transports
-- ✅ OAuth 2.0 authentication with OIDC provider support (Okta, Google, Azure AD)
-  - **Native mode**: Direct OAuth with zero server-side secrets
-  - **Proxy mode**: Centralized OAuth with fixed/allowlist redirect URIs
-  - HMAC-SHA256 state signing for multi-pod deployments
-  - PKCE support for enhanced security
-  - Defense-in-depth security model with four independent validation layers
+- ✅ OAuth 2.1 authentication via [oauth-mcp-proxy](https://github.com/tuannvm/oauth-mcp-proxy) library
+  - **4 Providers**: HMAC, Okta, Google, Azure AD
+  - **Native mode**: Client handles OAuth directly (zero server-side secrets)
+  - **Proxy mode**: Server proxies OAuth flow for simple clients
+  - **Production-ready**: Token caching, PKCE, defense-in-depth security
+  - **Reusable**: OAuth library available for any Go MCP server
 - ✅ StreamableHTTP support with JWT authentication (upgraded from SSE)
 - ✅ Backward compatibility with SSE endpoints
 - ✅ Compatible with Cursor, Claude Desktop, Windsurf, ChatWise, and any MCP-compatible clients.
@@ -158,6 +158,21 @@ export TRINO_ALLOWED_SCHEMAS="hive.analytics,hive.marts,hive.reporting"
 
 For complete configuration, see [Deployment Guide](docs/deployment.md), [OAuth Architecture](docs/oauth.md), and [Allowlists Guide](docs/allowlists.md).
 
+## OAuth Implementation
+
+mcp-trino uses [oauth-mcp-proxy](https://github.com/tuannvm/oauth-mcp-proxy) - a standalone OAuth 2.1 library for Go MCP servers.
+
+**Why a separate library?**
+- ✅ Reusable across any Go MCP server
+- ✅ Independent testing and versioning
+- ✅ Dedicated documentation and examples
+- ✅ Community-maintained OAuth implementation
+
+**For OAuth details:**
+- [oauth-mcp-proxy Documentation](https://github.com/tuannvm/oauth-mcp-proxy#readme) - Complete OAuth guide
+- [Provider Setup Guides](https://github.com/tuannvm/oauth-mcp-proxy/tree/main/docs/providers) - Okta, Google, Azure AD
+- [Security Best Practices](https://github.com/tuannvm/oauth-mcp-proxy/blob/main/docs/SECURITY.md) - Production security
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -165,6 +180,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Related Projects
+
+- **[oauth-mcp-proxy](https://github.com/tuannvm/oauth-mcp-proxy)** - OAuth 2.1 authentication library used by mcp-trino (reusable for any Go MCP server)
 
 ## CI/CD and Releases
 

@@ -1,6 +1,10 @@
-# OAuth 2.0 Authentication Architecture
+# OAuth 2.1 Authentication Architecture
 
-This document outlines the OAuth 2.0 authentication architecture for the mcp-trino server, providing secure access control for AI assistants accessing Trino databases.
+> **Implementation:** mcp-trino uses [oauth-mcp-proxy](https://github.com/tuannvm/oauth-mcp-proxy) - a standalone, production-ready OAuth library for Go MCP servers.
+>
+> **For implementation details, provider setup, and security best practices**, see the [oauth-mcp-proxy documentation](https://github.com/tuannvm/oauth-mcp-proxy#readme).
+
+This document outlines the OAuth 2.1 authentication architecture for mcp-trino server, providing secure access control for AI assistants accessing Trino databases.
 
 ## Important Security Notes
 

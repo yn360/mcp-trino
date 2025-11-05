@@ -330,10 +330,10 @@ func TestTableParameterResolution(t *testing.T) {
 	}
 
 	// Test the resolution logic that was causing the bug
-	testResolution("", "analytics", "users", "hive", "analytics", "users")                  // use default catalog
-	testResolution("", "", "analytics.users", "hive", "analytics", "users")                // schema.table format
-	testResolution("", "", "hive.analytics.users", "hive", "analytics", "users")           // fully qualified
-	testResolution("postgresql", "public", "orders", "postgresql", "public", "orders")     // explicit params
+	testResolution("", "analytics", "users", "hive", "analytics", "users")             // use default catalog
+	testResolution("", "", "analytics.users", "hive", "analytics", "users")            // schema.table format
+	testResolution("", "", "hive.analytics.users", "hive", "analytics", "users")       // fully qualified
+	testResolution("postgresql", "public", "orders", "postgresql", "public", "orders") // explicit params
 }
 
 func TestGetTableSchemaAllowlistLogic(t *testing.T) {
@@ -380,12 +380,12 @@ func TestGetTableSchemaAllowlistLogic(t *testing.T) {
 	}
 
 	// Test cases that verify the bug fix
-	testAllowlistAfterResolution("hive", "analytics", "users", true)              // explicit - should work
-	testAllowlistAfterResolution("", "analytics", "users", true)                 // default catalog - should work
-	testAllowlistAfterResolution("", "", "analytics.users", true)                // schema.table - BUG FIX: should work now
-	testAllowlistAfterResolution("", "", "hive.analytics.users", true)           // fully qualified - should work
-	testAllowlistAfterResolution("hive", "analytics", "events", false)           // not in allowlist - should deny
-	testAllowlistAfterResolution("postgresql", "analytics", "users", false)      // wrong catalog - should deny
+	testAllowlistAfterResolution("hive", "analytics", "users", true)        // explicit - should work
+	testAllowlistAfterResolution("", "analytics", "users", true)            // default catalog - should work
+	testAllowlistAfterResolution("", "", "analytics.users", true)           // schema.table - BUG FIX: should work now
+	testAllowlistAfterResolution("", "", "hive.analytics.users", true)      // fully qualified - should work
+	testAllowlistAfterResolution("hive", "analytics", "events", false)      // not in allowlist - should deny
+	testAllowlistAfterResolution("postgresql", "analytics", "users", false) // wrong catalog - should deny
 }
 
 func TestImprovedIsReadOnlyQuery(t *testing.T) {
@@ -403,6 +403,15 @@ func TestImprovedIsReadOnlyQuery(t *testing.T) {
 		{"EXPLAIN with word boundary", "EXPLAIN SELECT * FROM users", true},
 		{"WITH CTE", "WITH cte AS (SELECT 1) SELECT * FROM cte", true},
 
+		// SHOW CREATE statements (read-only despite containing "create" keyword)
+		{"SHOW CREATE TABLE", "SHOW CREATE TABLE users", true},
+		{"SHOW CREATE TABLE with schema", "SHOW CREATE TABLE myschema.users", true},
+		{"SHOW CREATE TABLE fully qualified", "SHOW CREATE TABLE catalog.schema.table", true},
+		{"SHOW CREATE TABLE with spaces", "  SHOW CREATE TABLE users  ", true},
+		{"SHOW CREATE VIEW", "SHOW CREATE VIEW my_view", true},
+		{"SHOW CREATE SCHEMA", "SHOW CREATE SCHEMA myschema", true},
+		{"SHOW CREATE MATERIALIZED VIEW", "SHOW CREATE MATERIALIZED VIEW my_mat_view", true},
+
 		// Edge cases with word boundaries (these should now be stricter)
 		{"SELECT without space", "SELECT*FROM users", true}, // Word boundary handles this
 		{"SHOW without space", "SHOWTABLES", false},         // Word boundary requires separation
@@ -412,6 +421,9 @@ func TestImprovedIsReadOnlyQuery(t *testing.T) {
 		{"UPDATE statement", "UPDATE users SET name = 'test'", false},
 		{"DELETE statement", "DELETE FROM users", false},
 		{"CREATE statement", "CREATE TABLE test (id INT)", false},
+		{"CREATE VIEW statement", "CREATE VIEW myview AS SELECT 1", false},
+		{"DROP statement", "DROP TABLE users", false},
+		{"ALTER statement", "ALTER TABLE users ADD COLUMN age INT", false},
 
 		// Complex cases
 		{"SELECT with INSERT in string", "SELECT 'INSERT INTO' FROM dual", true},
