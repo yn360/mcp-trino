@@ -16,7 +16,14 @@ var (
 	Version = "dev"
 )
 
-// Context keys are now imported from auth package
+// main is the program entry point for the Trino MCP Server.
+// 
+// It loads the Trino configuration (version may be set at build time), creates a Trino client
+// and defers its cleanup, and—unless external authentication is configured—verifies the
+// connection by listing available catalogs. It then initializes the MCP server and starts it
+// using the transport specified by the MCP_TRANSPORT environment variable (default "stdio"),
+// or "http" using the port from MCP_PORT (default "8080"). Fatal errors are logged and cause
+// process termination.
 
 func main() {
 	log.Println("Starting Trino MCP Server...")
@@ -40,13 +47,17 @@ func main() {
 		}
 	}()
 
-	// Test connection by listing catalogs
-	log.Println("Testing Trino connection...")
-	catalogs, err := trinoClient.ListCatalogs()
-	if err != nil {
-		log.Fatalf("Failed to connect to Trino: %v", err)
+	// Test connection by listing catalogs (skip for external auth - lazy connection)
+	if !trinoConfig.ExternalAuth {
+		log.Println("Testing Trino connection...")
+		catalogs, err := trinoClient.ListCatalogs()
+		if err != nil {
+			log.Fatalf("Failed to connect to Trino: %v", err)
+		}
+		log.Printf("Connected to Trino server. Available catalogs: %s", strings.Join(catalogs, ", "))
+	} else {
+		log.Println("External auth enabled - connection will be established on first query")
 	}
-	log.Printf("Connected to Trino server. Available catalogs: %s", strings.Join(catalogs, ", "))
 
 	// Create MCP server
 	log.Println("Initializing MCP server...")

@@ -48,6 +48,10 @@ type TrinoConfig struct {
 
 	// Query attribution
 	TrinoSource string // Value for X-Trino-Source header (identifies query source to Trino)
+
+	// External authentication (Trino's browser OAuth flow)
+	ExternalAuth        bool // Enable Trino external authentication (browser OAuth)
+	ExternalAuthTimeout int  // Timeout in seconds for external auth flow (default: 300)
 }
 
 // NewTrinoConfig creates a new TrinoConfig with values from environment variables or defaults
@@ -55,7 +59,12 @@ func NewTrinoConfig() (*TrinoConfig, error) {
 	return NewTrinoConfigWithVersion("dev")
 }
 
-// NewTrinoConfigWithVersion creates a new TrinoConfig with a specific version for X-Trino-Source
+// NewTrinoConfigWithVersion creates a TrinoConfig using environment variables and the provided version for X-Trino-Source.
+// 
+// The function reads configuration from environment variables (with sensible defaults), validates allowlist formats,
+// query and external-auth timeouts, and the impersonation field. It logs informational and warning messages for
+// notable misconfigurations and returns an error if required validations fail (for example, invalid allowlist entries
+// or an unsupported impersonation field). The supplied version is used to form the default Trino source attribution.
 func NewTrinoConfigWithVersion(version string) (*TrinoConfig, error) {
 	port, _ := strconv.Atoi(getEnv("TRINO_PORT", "8080"))
 	ssl, _ := strconv.ParseBool(getEnv("TRINO_SSL", "true"))
@@ -118,6 +127,15 @@ func NewTrinoConfigWithVersion(version string) (*TrinoConfig, error) {
 		trinoSource = fmt.Sprintf("mcp-trino/%s", version)
 	}
 
+	// Parse external authentication configuration
+	externalAuth, _ := strconv.ParseBool(getEnv("TRINO_EXTERNAL_AUTH", "false"))
+	externalAuthTimeoutStr := getEnv("TRINO_EXTERNAL_AUTH_TIMEOUT", "300")
+	externalAuthTimeout, err := strconv.Atoi(externalAuthTimeoutStr)
+	if err != nil || externalAuthTimeout <= 0 {
+		log.Printf("WARNING: Invalid TRINO_EXTERNAL_AUTH_TIMEOUT, using default of 300 seconds")
+		externalAuthTimeout = 300
+	}
+
 	// Validate allowlist formats
 	if err := validateAllowlist("TRINO_ALLOWED_SCHEMAS", allowedSchemas, 1); err != nil { // Must have catalog.schema format
 		return nil, err
@@ -177,6 +195,11 @@ func NewTrinoConfigWithVersion(version string) (*TrinoConfig, error) {
 	// Log query attribution configuration
 	log.Printf("INFO: Trino query source attribution: %s", trinoSource)
 
+	// Log external authentication configuration
+	if externalAuth {
+		log.Printf("INFO: Trino external authentication enabled (direct browser OAuth flow)")
+	}
+
 	return &TrinoConfig{
 		Host:                getEnv("TRINO_HOST", "localhost"),
 		Port:                port,
@@ -201,9 +224,11 @@ func NewTrinoConfigWithVersion(version string) (*TrinoConfig, error) {
 		AllowedCatalogs:     allowedCatalogs,
 		AllowedSchemas:      allowedSchemas,
 		AllowedTables:       allowedTables,
-		EnableImpersonation: enableImpersonation,
-		ImpersonationField:  impersonationField,
-		TrinoSource:         trinoSource,
+		EnableImpersonation:  enableImpersonation,
+		ImpersonationField:   impersonationField,
+		TrinoSource:          trinoSource,
+		ExternalAuth:         externalAuth,
+		ExternalAuthTimeout:  externalAuthTimeout,
 	}, nil
 }
 
