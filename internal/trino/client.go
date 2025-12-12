@@ -13,6 +13,7 @@ import (
 
 	"github.com/trinodb/trino-go-client/trino"
 	"github.com/tuannvm/mcp-trino/internal/config"
+	oauth "github.com/tuannvm/oauth-mcp-proxy"
 )
 
 // Context key for impersonated user
@@ -78,7 +79,10 @@ func NewClient(cfg *config.TrinoConfig) (*Client, error) {
 		},
 	}
 	if err := trino.RegisterCustomClient("mcp-trino", httpClient); err != nil {
-		return nil, fmt.Errorf("failed to register custom HTTP client: %w", err)
+		// Ignore "already registered" errors - this can happen in tests or when client is recreated
+		if !strings.Contains(err.Error(), "already registered") {
+			return nil, fmt.Errorf("failed to register custom HTTP client: %w", err)
+		}
 	}
 
 	db, err := sql.Open("trino", dsn)
@@ -271,12 +275,34 @@ func sanitizeQueryForKeywordDetection(query string) string {
 	return strings.TrimSpace(query)
 }
 
+// getQueryUsername returns the username of the user executing the query if present in OAuth context
+// This is used for query attribution (X-Trino-Client-Tags/Info) independent of impersonation
+func getQueryUsername(ctx context.Context) string {
+	user, exists := oauth.GetUserFromContext(ctx)
+	if !exists || user == nil {
+		return ""
+	}
+	if user.Username != "" {
+		return user.Username
+	}
+	if user.Email != "" {
+		return user.Email
+	}
+	if user.Subject != "" {
+		return user.Subject
+	}
+	return ""
+}
+
 // ExecuteQuery executes a SQL query and returns the results
 func (c *Client) ExecuteQuery(query string) ([]map[string]interface{}, error) {
 	return c.ExecuteQueryWithContext(context.Background(), query)
 }
 
 // ExecuteQueryWithContext executes a SQL query and returns the results
+// It supports both:
+// - User impersonation via X-Trino-User header (when EnableImpersonation is true)
+// - Query attribution via X-Trino-Client-Tags/Info/Source (from OAuth user context)
 func (c *Client) ExecuteQueryWithContext(ctx context.Context, query string) ([]map[string]interface{}, error) {
 	// Strip trailing semicolon that Trino doesn't allow
 	query = strings.TrimSuffix(strings.TrimSpace(query), ";")
@@ -291,8 +317,22 @@ func (c *Client) ExecuteQueryWithContext(ctx context.Context, query string) ([]m
 	queryCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Execute the query
-	rows, err := c.db.QueryContext(queryCtx, query)
+	// Build query arguments for attribution headers
+	// These are complementary to the X-Trino-User header set by RoundTripper
+	var queryArgs []interface{}
+	if userName := getQueryUsername(ctx); userName != "" {
+		queryArgs = append(queryArgs,
+			sql.Named("X-Trino-Client-Tags", userName),
+			sql.Named("X-Trino-Client-Info", userName),
+		)
+		// Only set X-Trino-Source if not already configured globally
+		if c.config.TrinoSource == "" {
+			queryArgs = append(queryArgs, sql.Named("X-Trino-Source", userName))
+		}
+	}
+
+	// Execute the query with optional attribution headers
+	rows, err := c.db.QueryContext(queryCtx, query, queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("query execution failed: %w", err)
 	}

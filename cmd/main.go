@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"strings"
@@ -42,7 +43,7 @@ func main() {
 
 	// Test connection by listing catalogs
 	log.Println("Testing Trino connection...")
-	catalogs, err := trinoClient.ListCatalogs()
+	catalogs, err := trinoClient.ListCatalogsWithContext(context.Background())
 	if err != nil {
 		log.Fatalf("Failed to connect to Trino: %v", err)
 	}
