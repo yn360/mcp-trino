@@ -101,7 +101,9 @@ graph TB
 - ✅ StreamableHTTP support with JWT authentication (upgraded from SSE)
 - ✅ Backward compatibility with SSE endpoints
 - ✅ Compatible with Cursor, Claude Desktop, Windsurf, ChatWise, and any MCP-compatible clients.
-- ✅ User Impersonation for authenticated users via Trino's `X-Trino-User` header
+- ✅ User Identity Tracking:
+  - **Query Attribution** (automatic): Tags queries with OAuth user via `X-Trino-Client-Tags/Info` headers
+  - **User Impersonation** (opt-in): Execute queries as OAuth user via `X-Trino-User` header
 
 ## Installation & Quick Start
 
@@ -157,19 +159,18 @@ export JWT_SECRET=$(openssl rand -hex 32)  # Required for multi-pod deployments
 export TRINO_ALLOWED_SCHEMAS="hive.analytics,hive.marts,hive.reporting"
 ```
 
-**User Impersonation:**
+**User Identity Tracking:**
 
 ```bash
-# Enable Trino user impersonation (requires OAuth)
+# Query Attribution is AUTOMATIC when OAuth is enabled
+# Queries are tagged with X-Trino-Client-Tags and X-Trino-Client-Info headers
+
+# For full impersonation (Trino enforces user permissions):
 export TRINO_ENABLE_IMPERSONATION=true
-
-# Optional: Configure which JWT field to use (default: username)
 export TRINO_IMPERSONATION_FIELD=email  # Options: username, email, subject
-
-# MCP will execute queries as the authenticated OAuth user via X-Trino-User header
 ```
 
-For complete configuration, see [Deployment Guide](docs/deployment.md), [OAuth Guide](docs/oauth.md), [Allowlists Guide](docs/allowlists.md), and [Impersonation Guide](docs/impersonation.md).
+For complete configuration, see [Deployment Guide](docs/deployment.md), [OAuth Guide](docs/oauth.md), [Allowlists Guide](docs/allowlists.md), and [User Identity Guide](docs/impersonation.md).
 
 ## OAuth Implementation
 

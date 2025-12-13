@@ -1,6 +1,19 @@
-# Trino User Impersonation
+# Trino User Impersonation & Query Attribution
 
 ## Overview
+
+mcp-trino provides two complementary features for user identity tracking:
+
+| Feature | Header | Purpose | Requires Config |
+|---------|--------|---------|-----------------|
+| **User Impersonation** | `X-Trino-User` | Execute queries as the actual user (affects permissions) | `TRINO_ENABLE_IMPERSONATION=true` |
+| **Query Attribution** | `X-Trino-Client-Tags`, `X-Trino-Client-Info` | Track who initiated queries (for auditing/monitoring) | OAuth enabled only |
+
+**Key Difference:**
+- **Impersonation** changes *who* Trino thinks is running the query (affects access control)
+- **Attribution** tags queries with user metadata (for monitoring/auditing without changing permissions)
+
+### User Impersonation
 
 Trino user impersonation allows the MCP server to execute queries on behalf of authenticated users while maintaining a single set of static credentials for the Trino connection. When enabled, MCP executes queries as the actual OAuth user (via the `X-Trino-User` header) rather than the service account.
 
@@ -10,9 +23,42 @@ Trino user impersonation allows the MCP server to execute queries on behalf of a
 - ✅ **Static credentials** - MCP uses one service account for all connections
 - ✅ **Security** - OAuth user identity propagated securely via validated JWT tokens
 
+### Query Attribution
+
+Query attribution automatically tags each query with the OAuth user's identity via Trino client metadata headers. This works **independently of impersonation** and is automatically enabled when OAuth is configured.
+
+**Benefits:**
+- ✅ **Zero configuration** - Works automatically with OAuth
+- ✅ **Non-intrusive** - Doesn't affect Trino permissions or access control
+- ✅ **Monitoring** - Track query patterns by user in Trino metrics
+- ✅ **Debugging** - Identify which user initiated problematic queries
+
+**Headers set:**
+- `X-Trino-Client-Tags` - OAuth username for query tagging
+- `X-Trino-Client-Info` - OAuth username for client identification
+- `X-Trino-Source` - OAuth username (only if `TRINO_SOURCE` not configured globally)
+
 ## Quick Start
 
-### 1. Enable in MCP
+### Query Attribution (Automatic)
+
+Query attribution requires **no configuration** beyond enabling OAuth:
+
+```bash
+# Just enable OAuth - attribution is automatic
+export OAUTH_ENABLED=true
+export OAUTH_PROVIDER=okta  # or google, azure, hmac
+export OIDC_ISSUER=https://company.okta.com
+export OIDC_AUDIENCE=https://mcp-server.com
+```
+
+With this setup, all queries from authenticated users will automatically include:
+- `X-Trino-Client-Tags: alice@example.com`
+- `X-Trino-Client-Info: alice@example.com`
+
+### User Impersonation (Opt-in)
+
+For full impersonation (Trino treats queries as coming from the actual user):
 
 ```bash
 export TRINO_ENABLE_IMPERSONATION=true
@@ -58,6 +104,8 @@ mcp-trino
 
 ## How It Works
 
+### Combined Flow (Attribution + Impersonation)
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -67,13 +115,29 @@ sequenceDiagram
     User->>MCP: OAuth Authentication
     MCP->>MCP: Extract Username from JWT
     User->>MCP: Execute Query (with JWT)
-    MCP->>MCP: Attach X-Trino-User header
-    MCP->>Trino: Query (as service account)<br/>X-Trino-User: actual_user
-    Trino->>Trino: Verify Impersonation Permissions
-    Trino->>Trino: Execute as actual_user
+
+    Note over MCP: Query Attribution (automatic)
+    MCP->>MCP: Set X-Trino-Client-Tags: user
+    MCP->>MCP: Set X-Trino-Client-Info: user
+
+    Note over MCP: Impersonation (if enabled)
+    MCP->>MCP: Set X-Trino-User: user
+
+    MCP->>Trino: Query with headers
+    Trino->>Trino: Log query attribution
+    Trino->>Trino: Verify impersonation (if header present)
+    Trino->>Trino: Execute query
     Trino->>MCP: Results
     MCP->>User: Results
 ```
+
+### Feature Comparison
+
+| Scenario | Attribution Headers | Impersonation Header | Trino Behavior |
+|----------|---------------------|---------------------|----------------|
+| OAuth only | ✅ Client-Tags/Info | ❌ None | Runs as service account, tagged with user |
+| OAuth + Impersonation | ✅ Client-Tags/Info | ✅ X-Trino-User | Runs as actual user, tagged with user |
+| No OAuth | ❌ None | ❌ None | Runs as service account, no user info |
 
 ## Configuration
 
@@ -328,32 +392,90 @@ mcp-trino
 }
 ```
 
+## When to Use Which Feature
+
+### Use Query Attribution Only (OAuth without Impersonation)
+
+Best when:
+- You want audit trails without changing Trino permissions
+- Service account should handle all access control
+- You need to track who initiated queries for monitoring
+- Trino access control rules are based on service account, not individual users
+
+```bash
+export OAUTH_ENABLED=true
+# TRINO_ENABLE_IMPERSONATION=false (default)
+```
+
+### Use Full Impersonation
+
+Best when:
+- Trino has user-specific access control rules
+- Different users need different data access permissions
+- Audit logs must show actual user as query executor
+- Row-level or column-level security depends on user identity
+
+```bash
+export OAUTH_ENABLED=true
+export TRINO_ENABLE_IMPERSONATION=true
+```
+
 ## Verification
 
 ### Check MCP Logs
 
-Look for:
+**For Query Attribution (OAuth enabled):**
+```
+INFO: OAuth 2.1 enabled (mode: native, provider: okta)
+```
+
+**For Impersonation (if enabled):**
 ```
 INFO: Trino user impersonation enabled (TRINO_ENABLE_IMPERSONATION=true)
 INFO: Impersonation principal field: email
-MCP: Preparing impersonation context for email: alice@example.com
-Trino: Setting X-Trino-User header to: alice@example.com
 ```
 
 ### Check Trino Logs
 
-Queries should show actual users:
+**With Query Attribution only:**
 ```
-user=alice@example.com query=SELECT * FROM table
-user=bob@example.com query=SELECT * FROM table
+# user shows service account, but client_tags shows actual user
+user=mcp_service_account client_tags=alice@example.com query=SELECT * FROM table
 ```
 
-Instead of:
+**With Impersonation enabled:**
 ```
-user=mcp_service_account query=SELECT * FROM table
+# user shows actual user
+user=alice@example.com client_tags=alice@example.com query=SELECT * FROM table
+```
+
+### Query Trino System Tables
+
+Check active queries with attribution:
+```sql
+SELECT
+    query_id,
+    user,
+    source,
+    client_tags,
+    client_info,
+    query
+FROM system.runtime.queries
+WHERE state = 'RUNNING';
 ```
 
 ## Troubleshooting
+
+### Query Attribution Not Working
+
+**Symptom:** `client_tags` and `client_info` are empty in Trino logs
+
+**Solution:** Verify:
+1. OAuth is enabled (`OAUTH_ENABLED=true`)
+2. User is authenticated (JWT token is valid)
+3. OAuth user has at least one of: `username`, `email`, or `subject` fields
+
+**Note:** Attribution only works when there's an actual OAuth user. If no user is found in context, no attribution headers are added (by design).
 
 ### Impersonation Fails
 
@@ -366,7 +488,7 @@ user=mcp_service_account query=SELECT * FROM table
 
 ### User Not Found in Context
 
-**Error:** No impersonation occurs, queries run as service account
+**Symptom:** No impersonation or attribution occurs, queries run as service account without user tags
 
 **Solution:** Verify:
 1. OAuth is enabled (`OAUTH_ENABLED=true`)
@@ -409,11 +531,12 @@ export TRINO_IMPERSONATION_FIELD=email
 
 ### Architecture
 
-The impersonation feature consists of three main components:
+The user identity features consist of four main components:
 
-1. **Configuration** - Reads `TRINO_ENABLE_IMPERSONATION` and `TRINO_IMPERSONATION_FIELD`
-2. **HTTP Round Tripper** - Intercepts HTTP requests to Trino and adds `X-Trino-User` header
-3. **MCP Handlers** - Extracts OAuth user and adds to query context
+1. **Configuration** - Reads `TRINO_ENABLE_IMPERSONATION`, `TRINO_IMPERSONATION_FIELD`, and `TRINO_SOURCE`
+2. **HTTP Round Tripper** - Intercepts HTTP requests to Trino and adds `X-Trino-User` and `X-Trino-Source` headers
+3. **MCP Handlers** - Extracts OAuth user and adds to query context for impersonation
+4. **Query Attribution** - Adds `X-Trino-Client-Tags/Info` via sql.Named parameters per query
 
 ### Request Flow
 
@@ -428,22 +551,53 @@ OAuth Middleware validates JWT
     ↓
 User extracted to context (username/email/subject)
     ↓
-prepareImpersonationContext() adds user to Trino context
+┌─────────────────────────────────────────────────────────┐
+│ Query Attribution (automatic with OAuth)                │
+│   getQueryUsername(ctx) extracts OAuth user             │
+│   sql.Named adds X-Trino-Client-Tags/Info headers       │
+└─────────────────────────────────────────────────────────┘
     ↓
-impersonationRoundTripper adds X-Trino-User header
+┌─────────────────────────────────────────────────────────┐
+│ Impersonation (if TRINO_ENABLE_IMPERSONATION=true)      │
+│   prepareImpersonationContext() adds user to context    │
+│   headerRoundTripper adds X-Trino-User header           │
+└─────────────────────────────────────────────────────────┘
     ↓
-Query executes in Trino as actual user
+Query executes in Trino
 ```
 
 ### Context Management
 
-User information flows through Go contexts:
+User information flows through Go contexts for both features:
 
 ```go
-// MCP Handler extracts OAuth user
+// === Query Attribution (automatic) ===
+// Trino client extracts OAuth user for attribution headers
+func getQueryUsername(ctx context.Context) string {
+    user, exists := oauth.GetUserFromContext(ctx)
+    if !exists || user == nil {
+        return ""  // No attribution if no OAuth user
+    }
+    // Priority: username > email > subject
+    if user.Username != "" { return user.Username }
+    if user.Email != "" { return user.Email }
+    if user.Subject != "" { return user.Subject }
+    return ""
+}
+
+// Attribution headers added via sql.Named parameters
+if userName := getQueryUsername(ctx); userName != "" {
+    queryArgs = append(queryArgs,
+        sql.Named("X-Trino-Client-Tags", userName),
+        sql.Named("X-Trino-Client-Info", userName),
+    )
+}
+
+// === User Impersonation (opt-in) ===
+// MCP Handler extracts OAuth user for impersonation
 user, ok := oauth.GetUserFromContext(ctx)
 
-// Select appropriate field
+// Select field based on config (configurable)
 var principal string
 switch config.ImpersonationField {
 case "email":
@@ -460,6 +614,16 @@ ctx = trino.WithImpersonatedUser(ctx, principal)
 // HTTP round tripper reads from context and adds header
 req.Header.Set("X-Trino-User", principal)
 ```
+
+### Header Priority
+
+| Header | Source | When Set | Configurable Field |
+|--------|--------|----------|-------------------|
+| `X-Trino-User` | headerRoundTripper | `TRINO_ENABLE_IMPERSONATION=true` | `TRINO_IMPERSONATION_FIELD` |
+| `X-Trino-Source` | headerRoundTripper | `TRINO_SOURCE` configured | N/A (static) |
+| `X-Trino-Source` | sql.Named | OAuth enabled, `TRINO_SOURCE` empty | Uses OAuth username |
+| `X-Trino-Client-Tags` | sql.Named | OAuth enabled | Uses OAuth username |
+| `X-Trino-Client-Info` | sql.Named | OAuth enabled | Uses OAuth username |
 
 ## Related Documentation
 
