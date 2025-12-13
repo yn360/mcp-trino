@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Tech Stack
 
-- **Language:** Go 1.24.2+
+- **Language:** Go 1.24.9+
 - **Key Dependencies:**
   - `github.com/mark3labs/mcp-go` v0.41.1 (MCP protocol)
   - `github.com/trinodb/trino-go-client` v0.328.0 (Trino client)
