@@ -2,6 +2,7 @@ package trino
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"log"
@@ -37,8 +38,17 @@ func (t *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		req.Header.Set("X-Trino-Source", t.config.TrinoSource)
 	}
 
-	// Set X-Trino-User header if impersonation is enabled
-	if t.config.EnableImpersonation {
+	// Token passthrough: if the user's OAuth Bearer token is in context, forward it
+	// directly to Trino so Trino can read groups from JWT claims for access control.
+	// Falls back to Basic auth (DSN) for startup health checks where no user context exists.
+	if token, ok := oauth.GetOAuthToken(req.Context()); ok && token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+		// Remove X-Trino-User set by the trino-go-client DSN (user: mcp-service).
+		// Without this, Trino sees Bearer identity + X-Trino-User and treats it as
+		// an impersonation attempt, which is denied.
+		req.Header.Del("X-Trino-User")
+	} else if t.config.EnableImpersonation {
+		// Fallback: set X-Trino-User for impersonation when no user token is present
 		if user, ok := req.Context().Value(impersonatedUserKey).(string); ok && user != "" {
 			req.Header.Set("X-Trino-User", user)
 		}
@@ -72,9 +82,15 @@ func NewClient(cfg *config.TrinoConfig) (*Client, error) {
 	dsnURL.RawQuery = params.Encode()
 	dsn := dsnURL.String()
 
+	baseTransport := http.DefaultTransport
+	if cfg.SSLInsecure {
+		baseTransport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
+	}
 	httpClient := &http.Client{
 		Transport: &headerRoundTripper{
-			base:   http.DefaultTransport,
+			base:   baseTransport,
 			config: cfg,
 		},
 	}
