@@ -40,11 +40,16 @@ trino:
     provider: "okta"
     jwtSecret: ""  # Required for multi-pod deployments - use: openssl rand -hex 32
     redirectURIs: "https://mcp-server.company.com/oauth/callback"  # Single URI (fixed mode) or comma-separated (allowlist mode)
+    # fixedRedirectURI: left unset - a single-valued redirectURIs above is
+    # automatically treated as the fixed-redirect callback URI.
     oidc:
       issuer: "https://company.okta.com"
       audience: "trino-mcp"
       clientId: "mcp-trino-client"
       # clientSecret should be set via --set or external secret
+      # Okta only issues a refresh token if "offline_access" is in scope -
+      # without it, clients can't renew silently and must re-auth hourly.
+      scopes: "openid,profile,email,offline_access"
 
 # Production resource limits
 resources:

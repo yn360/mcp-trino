@@ -34,6 +34,12 @@ data:
   {{- if .Values.trino.oauth.redirectURIs }}
   OAUTH_ALLOWED_REDIRECT_URIS: {{ .Values.trino.oauth.redirectURIs | quote }}
   {{- end }}
+  {{- if .Values.trino.oauth.fixedRedirectURI }}
+  OAUTH_FIXED_REDIRECT_URI: {{ .Values.trino.oauth.fixedRedirectURI | quote }}
+  {{- end }}
+  {{- if .Values.trino.oauth.allowedClientRedirectDomains }}
+  OAUTH_ALLOWED_CLIENT_REDIRECT_DOMAINS: {{ .Values.trino.oauth.allowedClientRedirectDomains | quote }}
+  {{- end }}
   {{- if .Values.trino.oauth.oidc.issuer }}
   OIDC_ISSUER: {{ .Values.trino.oauth.oidc.issuer | quote }}
   {{- end }}
@@ -45,5 +51,8 @@ data:
   {{- end }}
   {{- if .Values.trino.oauth.oidc.clientSecret }}
   OIDC_CLIENT_SECRET: {{ .Values.trino.oauth.oidc.clientSecret| quote }}
+  {{- end }}
+  {{- if .Values.trino.oauth.oidc.scopes }}
+  OIDC_SCOPES: {{ .Values.trino.oauth.oidc.scopes | quote }}
   {{- end }}
   {{- end }}

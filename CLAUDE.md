@@ -8,11 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Tech Stack
 
-- **Language:** Go 1.24.11+
+- **Language:** Go 1.25.7+
 - **Key Dependencies:**
-  - `github.com/mark3labs/mcp-go` v0.41.1 (MCP protocol)
+  - `github.com/mark3labs/mcp-go` v0.46.0 (MCP protocol)
   - `github.com/trinodb/trino-go-client` v0.328.0 (Trino client)
-  - `github.com/tuannvm/oauth-mcp-proxy` v0.0.2 (OAuth 2.1 authentication)
+  - `github.com/tuannvm/oauth-mcp-proxy` v1.2.0 (OAuth 2.1 authentication)
 - **Build Tools:** GoReleaser, Docker, GitHub Actions, golangci-lint
 
 ## Development Commands
@@ -121,6 +121,27 @@ All tools return JSON-formatted responses and handle parameter validation:
 - `JWT_SECRET` - Required for HMAC provider
 - `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` - For OIDC providers
 - `OAUTH_ALLOWED_REDIRECT_URIS` - Comma-separated redirect URIs
+- `OAUTH_FIXED_REDIRECT_URI` - Explicit single fixed-redirect callback URI. If unset and
+  `OAUTH_ALLOWED_REDIRECT_URIS` has no comma, it's inferred from that value (compat with
+  oauth-mcp-proxy <= v1.0.1, which inferred fixed-redirect mode this way)
+- `OAUTH_ALLOWED_CLIENT_REDIRECT_DOMAINS` - Comma-separated domain suffixes allowed for
+  client redirect URIs in fixed-redirect mode, in addition to localhost
+- `OIDC_SCOPES` - Comma-separated OIDC scopes (default: library's `openid,profile,email`).
+  Include `offline_access` if the IdP (e.g. Okta, Azure AD) requires it to issue a refresh
+  token - see docs/oauth.md
+
+The MCP transport (`/mcp`, `/sse`) enforces OAuth via `oauth.Server.WrapHandler`, which
+validates the bearer token (not just its presence) and returns 401 + `WWW-Authenticate` +
+`resource_metadata` for a missing, malformed, or expired token - so `initialize` and
+`tools/list` fail the same way `tools/call` already did. See `internal/mcp/server.go`
+`createMCPHandler` and docs/oauth.md.
+
+`grant_types_supported` in `/.well-known/oauth-authorization-server` and
+`/.well-known/openid-configuration` is patched to include `refresh_token` by
+`internal/mcp/oauthmeta.go` (the upstream library only advertises
+`authorization_code` as of v1.2.0, even though `/oauth/token` has accepted
+`grant_type=refresh_token` since v1.1.0). Delete that shim once
+[oauth-mcp-proxy#34](https://github.com/tuannvm/oauth-mcp-proxy/pull/34) ships.
 
 Key defaults and behaviors:
 - HTTPS scheme forces SSL=true regardless of TRINO_SSL setting
@@ -158,7 +179,7 @@ The GitHub Actions workflow (`.github/workflows/build.yml`) includes:
 - Docker Compose setup includes real Trino server  
 - Set `MCP_TRANSPORT=http` and test StreamableHTTP endpoint at `http://localhost:8080/mcp`
 - Test legacy SSE endpoint at `http://localhost:8080/sse` for backward compatibility
-- Test status endpoint at `GET /`
+- Test status endpoint at `GET /status`
 
 ## Build and Release
 
