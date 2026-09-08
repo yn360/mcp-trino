@@ -656,6 +656,71 @@ trino:
 
 This ensures all pods use the same HMAC signing key for state parameters.
 
+### Issue 4: Expired/Invalid Tokens Not Detected at Handshake
+
+**Problem:**
+The MCP transport (`/mcp`, `/sse`) only checked that the `Authorization` header
+*started with* `Bearer `, never that the token itself was valid. Token
+validation happened only when a query actually ran, via the tool-handler
+middleware.
+
+**Symptoms:**
+
+- `initialize` and `tools/list` returned HTTP 200 with an expired, garbage, or
+  otherwise invalid token - clients (including Claude Code) detect a broken
+  connection only from a 401 at the handshake, so they showed "connected" with
+  the full tool list even though auth was actually broken.
+- The failure only surfaced when a tool was actually called, as a JSON-RPC
+  error inside an HTTP 200 body (e.g. `token verification failed: oidc: token
+  is expired`) - not as a transport-level 401, so clients never triggered
+  re-auth automatically.
+
+**Solution:**
+`internal/mcp/server.go` `createMCPHandler` now wraps the streamable-HTTP
+handler with `oauth.Server.WrapHandler`, which validates the bearer token (not
+just its presence) and returns 401 + `WWW-Authenticate` + `resource_metadata`
+on failure - for `initialize` and `tools/list` exactly as it already did for
+`tools/call`.
+
+**File Fixed:** `internal/mcp/server.go` (`createMCPHandler`)
+
+### Issue 5: Refresh Token Grant Rejected / Not Advertised
+
+**Problem:**
+Two related gaps prevented silent token renewal in proxy mode:
+
+1. `POST /oauth/token` with `grant_type=refresh_token` returned `400 Missing
+   authorization code` (oauth-mcp-proxy <= v1.0.1 checked for a `code`
+   parameter before dispatching on grant type).
+2. Even after fixing that (oauth-mcp-proxy v1.1.0+ added a `refresh_token`
+   branch to `/oauth/token`), the discovery endpoints
+   (`/.well-known/oauth-authorization-server`,
+   `/.well-known/openid-configuration`) still advertised only
+   `grant_types_supported: ["authorization_code"]`, so RFC 8414-conformant
+   clients never attempted the refresh flow and fell back to full re-auth on
+   every access-token expiry.
+
+**Symptoms:**
+
+- Clients re-prompt for a full OAuth login every time the access token
+  expires, even when a valid `refresh_token` is on hand.
+- Manually POSTing `grant_type=refresh_token` returns `400 Missing
+  authorization code`.
+
+**Solution:**
+
+- Bumped `oauth-mcp-proxy` to v1.2.0, which supports the `refresh_token` grant
+  on `/oauth/token`.
+- Added a local shim (`internal/mcp/oauthmeta.go`) that patches
+  `grant_types_supported` in the two discovery responses to include
+  `refresh_token`, since the library still omits it even at v1.2.0. See
+  [oauth-mcp-proxy#34](https://github.com/tuannvm/oauth-mcp-proxy/pull/34)
+  (open, unmerged) - delete the shim once that ships.
+- If the upstream IdP (Okta/Azure AD) requires the `offline_access` scope to
+  issue a refresh token in the first place, set it via `OIDC_SCOPES`.
+
+**File Fixed:** `internal/mcp/oauthmeta.go`, `go.mod`
+
 ## Troubleshooting Guide
 
 ### Common Error Messages
@@ -689,6 +754,25 @@ This ensures all pods use the same HMAC signing key for state parameters.
 - Cause: Ingress not setting X-Forwarded-Proto header
 - Solution: Configure ingress to set `X-Forwarded-Proto: https`
 - Verification: Check request headers at pod level
+
+**Client shows "connected" but every tool call fails with a token error**
+
+- Cause: pre-fix behavior (see Issue 4 above) - an expired/invalid token got a
+  200 at `initialize`/`tools/list` and only failed at `tools/call`, so the
+  client never triggered re-auth
+- Solution: Deploy a version with the `WrapHandler` fix; confirm `curl` against
+  `/mcp` with an expired or garbage bearer token returns 401, not 200
+- Verification: `curl -i -X POST https://<mcp-url>/mcp -H "Authorization: Bearer <expired-or-garbage>" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` should return `HTTP/1.1 401` with a `WWW-Authenticate` header
+
+**Client re-prompts for full login instead of refreshing silently**
+
+- Cause: `/oauth/token` rejected `grant_type=refresh_token` (pre oauth-mcp-proxy
+  v1.1.0), or discovery metadata didn't advertise `refresh_token` in
+  `grant_types_supported` (see Issue 5 above)
+- Solution: Confirm `oauth-mcp-proxy >= v1.2.0` and the metadata shim
+  (`internal/mcp/oauthmeta.go`) are deployed; set `OIDC_SCOPES` to include
+  `offline_access` if the IdP requires it to issue a refresh token at all
+- Verification: `curl -s https://<mcp-url>/.well-known/oauth-authorization-server | jq .grant_types_supported` should include `"refresh_token"`
 
 ### Error Resolution Flowchart
 
@@ -724,7 +808,7 @@ flowchart TD
 
 | RFC | Standard | Status | Notes |
 |-----|----------|--------|-------|
-| RFC 6749 | OAuth 2.0 Core | ✅ Full | Authorization code flow |
+| RFC 6749 | OAuth 2.0 Core | ✅ Full | Authorization code + refresh token grants |
 | RFC 7636 | PKCE | ✅ Supported | Optional but recommended |
 | RFC 8414 | Metadata | ✅ Full | Discovery endpoints |
 | RFC 7591 | Dynamic Registration | ✅ Full | Client registration |

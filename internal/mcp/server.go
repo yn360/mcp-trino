@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -93,7 +92,7 @@ func (s *Server) ServeHTTP(port string) error {
 	mux.HandleFunc("/status", s.handleStatus)
 
 	if s.config.OAuthEnabled && s.oauthServer != nil {
-		s.oauthServer.RegisterHandlers(mux)
+		s.registerOAuthHandlers(mux)
 		log.Printf("INFO: OAuth enabled - mode: %s, provider: %s", s.config.OAuthMode, s.config.OAuthProvider)
 	}
 
@@ -166,13 +165,28 @@ func (s *Server) ServeHTTP(port string) error {
 	return nil
 }
 
-// createMCPHandler creates the shared MCP handler function
+// createMCPHandler creates the shared MCP handler function.
+//
+// OAuth enforcement happens via oauthServer.WrapHandler, which actually
+// validates the bearer token (not just its presence) and returns 401 +
+// WWW-Authenticate + resource_metadata on failure. This makes `initialize`
+// and `tools/list` fail the same way `tools/call` already did via the
+// tool-handler middleware — previously they returned HTTP 200 for an
+// expired or garbage token, so clients (Claude Code included) never
+// detected the failure and never triggered re-auth. See docs/oauth.md.
 func (s *Server) createMCPHandler(streamableServer *mcpserver.StreamableHTTPServer) http.HandlerFunc {
+	var protected http.Handler = streamableServer
+	if s.config.OAuthEnabled && s.oauthServer != nil {
+		protected = s.oauthServer.WrapHandler(streamableServer)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
+		// CORS preflight must be answered before the auth gate: WrapHandler
+		// does not special-case OPTIONS and would 401 it.
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -180,37 +194,7 @@ func (s *Server) createMCPHandler(streamableServer *mcpserver.StreamableHTTPServ
 
 		log.Printf("MCP %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 
-		if s.config.OAuthEnabled {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				log.Printf("OAuth: No bearer token provided, returning 401 with discovery info")
-
-				mcpHost := getEnv("MCP_HOST", "localhost")
-				mcpPort := getEnv("MCP_PORT", "8080")
-				scheme := s.getScheme()
-				mcpURL := getEnv("MCP_URL", fmt.Sprintf("%s://%s:%s", scheme, mcpHost, mcpPort))
-
-				w.Header().Add("WWW-Authenticate", `Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token"`)
-				w.Header().Add("WWW-Authenticate", fmt.Sprintf(`resource_metadata="%s/.well-known/oauth-protected-resource"`, mcpURL))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-
-				errorResponse := map[string]string{
-					"error":             "invalid_token",
-					"error_description": "Missing or invalid access token",
-				}
-				if err := json.NewEncoder(w).Encode(errorResponse); err != nil {
-					log.Printf("Error encoding OAuth error response: %v", err)
-				}
-				return
-			}
-
-			contextFunc := oauth.CreateHTTPContextFunc()
-			ctx := contextFunc(r.Context(), r)
-			r = r.WithContext(ctx)
-		}
-
-		streamableServer.ServeHTTP(w, r)
+		protected.ServeHTTP(w, r)
 	}
 }
 
@@ -268,16 +252,58 @@ func trinoConfigToOAuthConfig(cfg *config.TrinoConfig) *oauth.Config {
 	}
 
 	return &oauth.Config{
-		Mode:         cfg.OAuthMode,
-		Provider:     cfg.OAuthProvider,
-		RedirectURIs: cfg.OAuthRedirectURIs,
-		Issuer:       cfg.OIDCIssuer,
-		Audience:     cfg.OIDCAudience,
-		ClientID:     cfg.OIDCClientID,
-		ClientSecret: cfg.OIDCClientSecret,
-		ServerURL:    serverURL,
-		JWTSecret:    []byte(cfg.JWTSecret),
+		Mode:                         cfg.OAuthMode,
+		Provider:                     cfg.OAuthProvider,
+		RedirectURIs:                 cfg.OAuthRedirectURIs,
+		FixedRedirectURI:             resolveFixedRedirectURI(cfg.OAuthRedirectURIs),
+		AllowedClientRedirectDomains: getEnv("OAUTH_ALLOWED_CLIENT_REDIRECT_DOMAINS", ""),
+		Issuer:                       cfg.OIDCIssuer,
+		Audience:                     cfg.OIDCAudience,
+		ClientID:                     cfg.OIDCClientID,
+		ClientSecret:                 cfg.OIDCClientSecret,
+		Scopes:                       resolveOIDCScopes(),
+		ServerURL:                    serverURL,
+		JWTSecret:                    []byte(cfg.JWTSecret),
 	}
+}
+
+// resolveFixedRedirectURI decides oauth-mcp-proxy's "fixed redirect" mode.
+//
+// oauth-mcp-proxy <= v1.0.1 inferred fixed-redirect mode implicitly: a single
+// (comma-free) value in RedirectURIs was treated as the one fixed callback URI
+// used to proxy Claude Code's localhost redirect. v1.1.0+ requires this to be
+// set explicitly via a separate FixedRedirectURI field (OAUTH_FIXED_REDIRECT_URI)
+// - a single-valued RedirectURIs is now allowlist-only and would silently break
+// existing single-URI deployments after a library bump. Preserve the old
+// inference as a fallback so no deployment env change is required.
+func resolveFixedRedirectURI(redirectURIs string) string {
+	if explicit := getEnv("OAUTH_FIXED_REDIRECT_URI", ""); explicit != "" {
+		return explicit
+	}
+	if redirectURIs != "" && !strings.Contains(redirectURIs, ",") {
+		return strings.TrimSpace(redirectURIs)
+	}
+	return ""
+}
+
+// resolveOIDCScopes reads OIDC_SCOPES (comma-separated). Okta/Azure only issue
+// a refresh token when "offline_access" is present in the requested scopes, so
+// deployments that need silent refresh from those providers should include it
+// here. Empty return lets oauth-mcp-proxy fall back to its own default
+// ("openid,profile,email").
+func resolveOIDCScopes() []string {
+	raw := getEnv("OIDC_SCOPES", "")
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	scopes := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			scopes = append(scopes, trimmed)
+		}
+	}
+	return scopes
 }
 
 // getEnv gets environment variable with default value

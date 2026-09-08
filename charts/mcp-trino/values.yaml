@@ -77,6 +77,12 @@ trino:
     provider: "hmac"  # hmac, okta, google, azure
     jwtSecret: ""
     redirectURIs: ""  # Single redirect URI or comma-separated list for proxy mode
+    # Explicit fixed-redirect callback URI (proxy mode). If unset and redirectURIs
+    # has no comma, it's inferred from redirectURIs for backward compatibility.
+    fixedRedirectURI: ""
+    # Comma-separated domain suffixes allowed for client redirect URIs in fixed
+    # redirect mode, in addition to localhost.
+    allowedClientRedirectDomains: ""
 
     # OIDC configuration
     oidc:
@@ -84,6 +90,9 @@ trino:
       audience: ""
       clientId: ""
       clientSecret: ""
+      # Comma-separated OIDC scopes (default if unset: "openid,profile,email").
+      # Include "offline_access" if the IdP requires it to issue a refresh token.
+      scopes: ""
 
 # Resource limits and requests
 resources:
